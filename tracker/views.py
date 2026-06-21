@@ -1,3 +1,4 @@
+from django.contrib.auth.models import User
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -83,3 +84,47 @@ class HealthCheckView(APIView):
 
     def get(self, request):
         return Response({'status': 'ok'})
+
+
+class CreateSuperUserView(APIView):
+    """
+    POST /api/create-superuser/
+    ONE TIME USE — delete this endpoint after creating your admin.
+    """
+
+    def post(self, request):
+        secret = request.data.get('secret')
+
+        # Simple secret key check so random people can't hit this
+        if secret != 'setup-2026-secret':
+            return Response(
+                {'error': 'Invalid secret'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        username = request.data.get('username', 'admin')
+        email = request.data.get('email', '')
+        password = request.data.get('password')
+
+        if not password:
+            return Response(
+                {'error': 'password is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if User.objects.filter(username=username).exists():
+            return Response(
+                {'error': f'User "{username}" already exists'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        User.objects.create_superuser(
+            username=username,
+            email=email,
+            password=password,
+        )
+
+        return Response(
+            {'status': 'ok', 'message': f'Superuser "{username}" created'},
+            status=status.HTTP_201_CREATED
+        )
