@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',       # allows Flutter app to call this API
     'tracker',
+    'dashboard_internal',
 
 ]
 

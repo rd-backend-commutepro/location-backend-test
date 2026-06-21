@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Live Tracker Dashboard</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f1117;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      background: #1a1d27;
+      border-bottom: 1px solid #2a2d3a;
+      z-index: 1000;
+    }
+
+    header h1 { font-size: 18px; font-weight: 600; color: #4fc3f7; }
+
+    #status-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #ef5350; display: inline-block;
+      margin-right: 6px; transition: background 0.3s;
+    }
+    #status-dot.live { background: #66bb6a; animation: pulse 1.5s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    #status-text { font-size: 13px; color: #aaa; }
+    #last-updated { font-size: 12px; color: #666; }
+
+    .main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 300px;
+      background: #1a1d27;
+      border-right: 1px solid #2a2d3a;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-header {
+      padding: 16px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #666;
+      border-bottom: 1px solid #2a2d3a;
+    }
+
+    #device-list { overflow-y: auto; flex: 1; }
+
+    .device-item {
+      padding: 14px 16px;
+      border-bottom: 1px solid #2a2d3a;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .device-item:hover  { background: #22263a; }
+    .device-item.active { background: #1e3a5f; border-left: 3px solid #4fc3f7; }
+
+    .device-id   { font-size: 13px; font-weight: 600; color: #e0e0e0; margin-bottom: 4px; }
+    .device-meta { font-size: 11px; color: #888; }
+
+    /* ── Stats ── */
+    .stats-panel {
+      padding: 16px;
+      border-top: 1px solid #2a2d3a;
+      background: #161820;
+    }
+
+    .stats-title {
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 1px;
+      color: #555; margin-bottom: 12px;
+    }
+
+    .stat-row {
+      display: flex; justify-content: space-between;
+      margin-bottom: 8px; font-size: 13px;
+    }
+
+    .stat-label { color: #777; }
+    .stat-value { color: #e0e0e0; font-weight: 500; }
+    .stat-value.highlight { color: #4fc3f7; }
+
+    /* ── Controls ── */
+    .controls {
+      padding: 12px 16px;
+      border-top: 1px solid #2a2d3a;
+      display: flex; gap: 8px;
+    }
+
+    button {
+      flex: 1; padding: 8px; border: none;
+      border-radius: 6px; font-size: 12px;
+      cursor: pointer; font-weight: 500;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.85; }
+
+    #btn-follow {
+      background: #1e3a5f; color: #4fc3f7;
+      border: 1px solid #4fc3f7;
+    }
+    #btn-follow.active { background: #4fc3f7; color: #0f1117; }
+    #btn-clear { background: #2a1f1f; color: #ef5350; border: 1px solid #ef5350; }
+
+    /* ── Map ── */
+    #map { flex: 1; background: #1a1d27; }
+
+    .leaflet-tile { filter: brightness(0.85) saturate(0.9); }
+
+    .leaflet-popup-content-wrapper {
+      background: #1a1d27; color: #e0e0e0;
+      border: 1px solid #2a2d3a;
+    }
+    .leaflet-popup-tip { background: #1a1d27; }
+
+    .empty-msg { padding: 24px 16px; text-align: center; color: #555; font-size: 13px; }
+
+    /* ── Admin link ── */
+    .admin-link {
+      font-size: 12px; color: #4fc3f7;
+      text-decoration: none; opacity: 0.7;
+    }
+    .admin-link:hover { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📍 Live Tracker Dashboard</h1>
+  <div style="display:flex; align-items:center; gap:20px;">
+    <div>
+      <span id="status-dot"></span>
+      <span id="status-text">Connecting...</span>
+    </div>
+    <span id="last-updated">—</span>
+    <a href="/admin/" class="admin-link">Admin →</a>
+  </div>
+</header>
+
+<div class="main">
+
+  <div class="sidebar">
+    <div class="sidebar-header">Devices</div>
+
+    <div id="device-list">
+      <div class="empty-msg">Waiting for devices...</div>
+    </div>
+
+    <div class="stats-panel">
+      <div class="stats-title">Selected Device</div>
+      <div class="stat-row">
+        <span class="stat-label">Device ID</span>
+        <span class="stat-value" id="s-device">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Latitude</span>
+        <span class="stat-value" id="s-lat">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Longitude</span>
+        <span class="stat-value" id="s-lng">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Speed</span>
+        <span class="stat-value highlight" id="s-speed">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Accuracy</span>
+        <span class="stat-value" id="s-accuracy">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Last Seen</span>
+        <span class="stat-value" id="s-time">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Trail Points</span>
+        <span class="stat-value" id="s-points">—</span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="btn-follow" class="active" onclick="toggleFollow()">⊙ Auto Follow</button>
+      <button id="btn-clear" onclick="clearTrail()">✕ Clear Trail</button>
+    </div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<script>
+  const API_BASE  = '';
+  const POLL_MS   = 5000;
+  const TRAIL_MAX = 200;
+  const LIMIT     = 100;
+
+  let map, autoFollow = true;
+  let selectedDevice  = null;
+  let devices = {};
+
+  // ── Map ───────────────────────────────────────────────
+  function initMap() {
+    map = L.map('map', { zoomControl: false }).setView([17.44, 78.49], 13);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap',
+      maxZoom: 19,
+    }).addTo(map);
+
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+  }
+
+  function makeIcon(color = '#4fc3f7') {
+    return L.divIcon({
+      className: '',
+      html: `<div style="
+        width:14px;height:14px;
+        background:${color};
+        border:2px solid white;
+        border-radius:50%;
+        box-shadow:0 0 8px ${color};
+      "></div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+  }
+
+  // ── API ───────────────────────────────────────────────
+  async function fetchDevices() {
+    const res = await fetch(`${API_BASE}/api/devices/`);
+    if (!res.ok) throw new Error(`devices ${res.status}`);
+    return res.json();
+  }
+
+  async function fetchHistory(deviceId) {
+    const res = await fetch(
+      `${API_BASE}/api/location/history/?device_id=${encodeURIComponent(deviceId)}&limit=${LIMIT}`
+    );
+    if (!res.ok) return [];
+    return res.json();
+  }
+
+  // ── Update device on map ──────────────────────────────
+  function updateDevice(deviceId, logs) {
+    if (!logs || logs.length === 0) return;
+
+    const latest = logs[0];
+    const latlng = L.latLng(latest.latitude, latest.longitude);
+
+    if (!devices[deviceId]) {
+      const marker = L.marker(latlng, { icon: makeIcon() })
+        .addTo(map)
+        .bindPopup(`<b>${deviceId}</b>`);
+
+      const polyline = L.polyline([], {
+        color: '#4fc3f7', weight: 3, opacity: 0.7,
+      }).addTo(map);
+
+      devices[deviceId] = { marker, polyline, trail: [], latestLog: null };
+
+      if (!selectedDevice) selectDevice(deviceId);
+    }
+
+    const d = devices[deviceId];
+    const points = [...logs].reverse().map(l => L.latLng(l.latitude, l.longitude));
+    d.trail = points.slice(-TRAIL_MAX);
+    d.polyline.setLatLngs(d.trail);
+    d.marker.setLatLng(latlng);
+    d.latestLog = latest;
+
+    if (deviceId === selectedDevice && autoFollow) {
+      map.setView(latlng, Math.max(map.getZoom(), 16));
+    }
+
+    if (deviceId === selectedDevice) updateStats(deviceId);
+  }
+
+  // ── Sidebar ───────────────────────────────────────────
+  function renderDeviceList(deviceList) {
+    const el = document.getElementById('device-list');
+    if (!deviceList || deviceList.length === 0) {
+      el.innerHTML = '<div class="empty-msg">No devices found</div>';
+      return;
+    }
+
+    el.innerHTML = deviceList.map(d => `
+      <div class="device-item ${d.device_id === selectedDevice ? 'active' : ''}"
+           onclick="selectDevice('${d.device_id}')">
+        <div class="device-id">${d.device_id}</div>
+        <div class="device-meta">${d.name || 'Unnamed device'} · ${d.log_count} logs</div>
+      </div>
+    `).join('');
+  }
+
+  function selectDevice(deviceId) {
+    selectedDevice = deviceId;
+    document.querySelectorAll('.device-item').forEach(el => {
+      el.classList.toggle('active', el.getAttribute('onclick')?.includes(deviceId));
+    });
+    updateStats(deviceId);
+    if (devices[deviceId]) {
+      map.setView(devices[deviceId].marker.getLatLng(), 17);
+    }
+  }
+
+  function updateStats(deviceId) {
+    const d = devices[deviceId];
+    if (!d || !d.latestLog) return;
+    const log = d.latestLog;
+
+    document.getElementById('s-device').textContent =
+      deviceId.length > 14 ? deviceId.substring(0, 14) + '…' : deviceId;
+    document.getElementById('s-lat').textContent      = parseFloat(log.latitude).toFixed(6);
+    document.getElementById('s-lng').textContent      = parseFloat(log.longitude).toFixed(6);
+    document.getElementById('s-speed').textContent    = `${(log.speed * 3.6).toFixed(1)} km/h`;
+    document.getElementById('s-accuracy').textContent = `${parseFloat(log.accuracy).toFixed(0)} m`;
+    document.getElementById('s-time').textContent     = new Date(log.timestamp).toLocaleTimeString();
+    document.getElementById('s-points').textContent   = d.trail.length;
+  }
+
+  // ── Controls ──────────────────────────────────────────
+  function toggleFollow() {
+    autoFollow = !autoFollow;
+    const btn = document.getElementById('btn-follow');
+    btn.classList.toggle('active', autoFollow);
+    btn.textContent = autoFollow ? '⊙ Auto Follow' : '◎ Manual';
+  }
+
+  function clearTrail() {
+    if (!selectedDevice || !devices[selectedDevice]) return;
+    devices[selectedDevice].trail = [];
+    devices[selectedDevice].polyline.setLatLngs([]);
+  }
+
+  // ── Status ────────────────────────────────────────────
+  function setStatus(live) {
+    document.getElementById('status-dot').className  = live ? 'live' : '';
+    document.getElementById('status-text').textContent = live ? 'Live' : 'Reconnecting...';
+  }
+
+  function setLastUpdated() {
+    document.getElementById('last-updated').textContent =
+      'Updated ' + new Date().toLocaleTimeString();
+  }
+
+  // ── Poll loop ─────────────────────────────────────────
+  async function poll() {
+    try {
+      const deviceList = await fetchDevices();
+      renderDeviceList(deviceList);
+
+      for (const d of deviceList) {
+        const logs = await fetchHistory(d.device_id);
+        updateDevice(d.device_id, logs);
+      }
+
+      setStatus(true);
+      setLastUpdated();
+    } catch (e) {
+      setStatus(false);
+      console.error('Poll error:', e);
+    }
+  }
+
+  // ── Boot ──────────────────────────────────────────────
+  initMap();
+  poll();
+  setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>
