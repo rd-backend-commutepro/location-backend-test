@@ -1,0 +1,7 @@
+django==5.0.4
+djangorestframework
+psycopg2-binary
+django-cors-headers
+gunicorn
+python-decouple
+dj-database-url
