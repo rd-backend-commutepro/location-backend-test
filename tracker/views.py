@@ -1,3 +1,4 @@
+from django.db.models import Count, Max
 from django.contrib.auth.models import User
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -128,3 +129,27 @@ class CreateSuperUserView(APIView):
             {'status': 'ok', 'message': f'Superuser "{username}" created'},
             status=status.HTTP_201_CREATED
         )
+
+
+class DeviceListView(APIView):
+    """
+    GET /api/devices/
+    Returns all devices with their log count, for the dashboard sidebar.
+    """
+
+    def get(self, request):
+        devices = Device.objects.annotate(
+            log_count=Count('logs'),
+            last_seen=Max('logs__timestamp'),
+        ).order_by('-last_seen')
+
+        data = [
+            {
+                'device_id': d.device_id,
+                'name': d.name,
+                'log_count': d.log_count,
+            }
+            for d in devices
+        ]
+
+        return Response(data)
